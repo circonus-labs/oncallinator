@@ -10,7 +10,7 @@ Create a .authtoken file and paste a Circonus API auth token into it
 
 ./oncallinator.js
 
-Go to http://<host>:8080
+Go to http://[host]:8080
 
 The OnCall Contact Group is the group that this will act on, adding and removing users when they go on call.
 
