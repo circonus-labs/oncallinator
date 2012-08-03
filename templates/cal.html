@@ -1,0 +1,414 @@
+<html>
+<head>
+  <link rel="stylesheet" type="text/css" href="http://ajax.googleapis.com/ajax/libs/jqueryui/1.8.21/themes/base/jquery-ui.css"/>
+  <style type="text/css">
+    td {width: 150px; height: 150px; position: relative;}
+    .arrow {font-size: 150%; text-decoration: none; color: black;}
+    .day {position: absolute; top: -10px; width: 20px; text-align: center;}
+    .empty {background-color: lightgray;}
+    .hlcolor {height: 10px; width: 10px; display: inline-block;}
+    .oncall {margin: 0px}
+    .title {display:inline-block; width: 150px;}
+    .userrow { margin: 0px }
+    #nav {width: 1050px}
+    #month {font-weight: bold; font-size: 150%}
+    #calcont {float: left;}
+    #datacontainer {float: left; margin-left: 10px;}
+    #dayModal {display: none; height: 400px; width: 1000px;}
+  </style>
+</head>
+<body>
+  <div id="nav">
+    <a href="#" id="previous_month" class="arrow">&#8592;</a>
+    <span id="month"></span>
+    <a href="#" id="next_month" class="arrow">&#8594;</a>
+  </div>
+  <div id="calcont"></div>
+  <div id="datacontainer">
+    <p>
+      <span class="title">OnCall Contact Group</span>
+      <select id="contactgroups"><option value="0">None</option></select>
+    </p>
+    <p>
+      <span class="title">Rotation Time</span>
+      <input name="hour" id="hour" value="00" size="2" title="hour (24 hour format)"/>:<input name="minute" id="minute" value="00" size="2" title="minute"/>
+    </p>
+    <p id="users"></p>
+    <p><button name="save" id="save">Save</button></p>
+  </div>
+  <div id="dayModal" title="">
+  </div>
+  <div id="tmpl" style="display:none;">
+    <select id="userselecttmpl" name="user" class="userselect"><option value=""></option></select>
+    <select id="methodselecttmpl" name="method" class="methodselect"><option value=""></option></select>
+  </div>
+</body>
+<script type="text/javascript" src="https://ajax.googleapis.com/ajax/libs/jquery/1.7.2/jquery.min.js"></script>
+<script type="text/javascript" src="http://ajax.googleapis.com/ajax/libs/jqueryui/1.8.21/jquery-ui.min.js"></script>
+<script type="text/javascript">
+var months = ['January','February','March','April','May','June','July','August','September','October','November','December'],
+    colors = ['#1f77b4','#aec7e8','#ff7f0e','#ffbb78','#2ca02c','#98df8a','#d62728','#ff9896','#9467bd','#c5b0d5','#8c564b','#c49c94','#e377c2','#f7b6d2','#7f7f7f','#c7c7c7','#bcbd22','#dbdb8d','#17becf','#9edae5'],
+    doweek = ['Sunday','Monday','Tuesday','Wednesday','Thursday','Friday','Saturday'],
+    _data = {},
+    settings = {},
+    schedule = {},
+    data_loaded = { contact_groups: 0, users: 0 },
+    users = {},
+    uidx = 0,
+    day = 0,
+    $daymodal = null,
+    currm = new Date(),
+    last = new Date();
+
+function prevMon() {
+  currm.setMonth(_data.previous_month - 1);
+  currm.setFullYear(_data.previous_year);
+  showCal();
+};
+function nextMon() {
+  currm.setMonth(_data.next_month - 1);
+  currm.setFullYear(_data.next_year);
+  showCal();
+};
+
+function editDay() {
+  var $html = $("<div></div>"),
+      daydata = $(this).data("day"),
+      $usertmpl = $("#userselecttmpl"),
+      $userselect = null,
+      $methodtmpl = $("#methodselecttmpl"),
+      $methodselect = null;
+ 
+  uidx = 0;
+  day = daydata.day;
+  if ( schedule[daydata.day] ) {
+    for ( idx in schedule[daydata.day] ) {
+      var oncalluser = schedule[daydata.day][idx];
+
+      $userselect = $usertmpl.clone();
+      $methodselect = $methodtmpl.clone();
+      $userselect.attr("name", "user"+uidx).attr("id", "user"+uidx).data("idx", uidx).val(oncalluser.user_id);
+      $methodselect.attr("name", "method"+uidx).attr("id", "method"+uidx).data("idx", uidx);
+      for ( method in users[oncalluser.user_id].contact_methods ) {
+        $methodselect.append("<option value=\""+method+"\">"+method+"</option>");
+      }
+      $methodselect.val(oncalluser.method);
+
+      var $remove = $("<a href=\"javascript:;\" data-idx=\""+uidx+"\" class=\"remove_user\" id=\"remove"+uidx+"\">X</a>");
+
+      var $row = $("<p class=\"userrow\" id=\"userrow"+uidx+"\"></p>");
+      $row.append($userselect, " ", $methodselect, " ", $remove);
+      $html.append($row);
+      uidx++;
+    }
+  }
+  appendUserSelect($html);
+
+  $daymodal.dialog("option", "title", months[currm.getMonth()] + " " + daydata.day + ", " + currm.getFullYear());
+  $daymodal.html($html);
+  $daymodal.dialog('open');
+}
+
+function appendUserSelect($el) {
+  var $usertmpl = $("#userselecttmpl"),
+      $userselect = null,
+      $methodtmpl = $("#methodselecttmpl"),
+      $methodselect = null;
+
+  $userselect = $usertmpl.clone();
+  $methodselect = $methodtmpl.clone();
+  $userselect.attr("name", "user"+uidx).attr("id", "user"+uidx).data("idx", uidx);
+  $methodselect.attr("name", "method"+uidx).attr("id", "method"+uidx).data("idx", uidx);
+  var $remove = $("<a href=\"javascript:;\" data-idx=\""+uidx+"\" name=\"remove_user\">X</a>");
+
+  var $row = $("<p class=\"userrow\" id=\"userrow"+uidx+"\"></p>");
+  $row.append($userselect, " ", $methodselect, " ", $remove);
+  $el.append($row);
+  uidx++;
+}
+
+function removeUser() {
+  var idx = $(this).data("idx");
+  $("#userrow"+idx).remove();
+}
+
+function showCal() {
+  var curr = 1;
+
+  currm.setDate(1);
+  last = new Date(currm.getFullYear(), currm.getMonth()+1, 0);
+  var prev = new Date(currm.getFullYear(), currm.getMonth(), 0);
+  var next = new Date(currm.getFullYear(), currm.getMonth()+1, 1);
+
+  var html = "<table cellspacing='0' cellpadding ='0' border='1' id='calendar'>\n";
+  html += "<thead>";
+  for (dow in doweek) {
+    html += "<th>"+doweek[dow]+"</th>";
+  }
+  html += "</thead>";
+
+  for (var i=0; i<5; i++) {
+    html += "<tr>";
+    for (var j=0; j<7; j++) {
+      if ( curr == 1 ) {
+        if ( j == currm.getDay() ) {
+          html += "<td data-day='{\"day\":1}' id=\"day1\"><p class='day'>1</p><div id=\"schedule1\"></div></td>";
+          curr++;
+        }
+        else {
+          html += "<td class='empty'></td>";
+        }
+      }
+      else if ( curr <= last.getDate() ) {
+        html += "<td data-day='{\"day\":"+curr+"}' id=\"day"+curr+"\"><p class='day'>"+curr+"</p><div id=\"schedule"+curr+"\"></div></td>";
+        curr++;
+      }
+      else {
+        html += "<td class='empty'></td>";
+      }
+    }
+    html += "</tr>\n";
+  }
+  html += "</table>\n";
+
+  $("#month").html(months[currm.getMonth()] + " " + currm.getFullYear());
+  $("#calcont").empty();
+  $("#calcont").append(html);
+  $("#calendar td").on("click", editDay);
+
+  _data.previous_month = prev.getMonth() + 1;
+  _data.previous_year = prev.getFullYear();
+  _data.next_month = next.getMonth() + 1;
+  _data.next_year = next.getFullYear();
+  getContactGroups();
+  getUsers();
+};
+
+function getContactGroups() {
+  if ( ! data_loaded.contact_groups ) {
+    data_loaded.contact_groups = 1;
+    $.ajax({
+      url: '/contactgroups',
+      dataType: 'json',
+      success: function(data) {
+        var $cg = $("#contactgroups");
+        for ( idx in data ) {
+          if ( data[idx].active ) {
+            $cg.append("<option value=\""+data[idx].contact_group_id+"\">"+data[idx].name+"</option>");
+          }
+        }
+        loadSettings();
+      },
+      error: function(xhr, error) {
+        data_loaded.contact_groups = 0;
+        alert('Error loading contact groups from Circonus');
+      }
+    });
+  }
+}
+
+function getUsers() {
+  if ( ! data_loaded.users ) {
+    data_loaded.users = 1;
+    $.ajax({
+      url: '/users',
+      dataType: 'json',
+      success: function(data) {
+        var $users = $("#users"),
+            $tmpl = $("#userselecttmpl"),
+            cidx = 0,
+            length = data.length;
+
+        for ( idx in data.sort(function(a,b) {
+          if ( a.lastname.toLowerCase() < b.lastname.toLowerCase() ) return -1;
+          else if ( b.lastname.toLowerCase() < a.lastname.toLowerCase() ) return 1;
+          else return 0;})
+        ) {
+          cidx = idx % length;
+          if ( data[idx].role !== 'Read Only' ) {
+            data[idx].color = colors[cidx];
+            users[data[idx].user_id] = data[idx];
+            var $user = $("<div><span class=\"hlcolor\" style=\"background-color:"+colors[cidx]+"\"></span> <span class=\"name\">"+data[idx].firstname+" "+data[idx].lastname+"</span></div>");
+            $users.append($user);
+            $tmpl.append("<option value=\""+data[idx].user_id+"\">"+data[idx].firstname+" "+data[idx].lastname+"</option>");
+          }
+        }
+        loadSchedule();
+      },
+      error: function(xhr, error) {
+        data_loaded.users = 0;
+        alert('Error loading users from Circonus');
+      }
+    });
+  }
+  else {
+    loadSchedule();
+  }
+}
+
+function populateUserContactMethods() {
+  var $me = $(this);
+  var idx = $me.data("idx");
+  var $methods = $("#method"+idx);
+
+  $methods.empty().append("<option value=''></option>");
+  for ( method in users[$me.val()].contact_methods) {
+    $methods.append("<option value=\""+method+"\">"+method+"</option>");
+  }
+}
+
+function methodSelected() {
+  var $me = $(this),
+      $dialog = $("#dayModal");
+
+  if ( $me.data("idx") == uidx - 1 ) {
+    appendUserSelect($dialog);
+  }
+}
+
+function saveDay() {
+  if ( day ) {
+    var idx = 0,
+        $sched = $("#schedule"+day),
+        useradded = {};
+
+    schedule[day] = [];
+    $sched.empty();
+    $(this).find(".userselect").each(function(idx) {
+      var $me = $(this);
+      if ( $me.val() ) {
+        var user = users[$me.val()];
+
+        schedule[day][idx] = {
+          user_id: $me.val(),
+          method: $("#method"+$me.data("idx")).val()
+        };
+        if ( ! useradded[user.user_id] ) {
+          $sched.append("<p class=\"oncall\" style=\"background-color: "+user.color+"\">"+user.firstname+" "+user.lastname +"</p>");
+          useradded[user.user_id] = 1;
+        }
+        idx++;
+      }
+    });
+    saveSchedule();
+  }
+  $(this).dialog("close");
+}
+
+function loadSettings() {
+  $.ajax({
+    url: '/settings',
+    dataType: 'json',
+    success: function(data) {
+      settings = data;
+      if ( settings.group_id  ) $("#contactgroups").val(settings.group_id);
+      if ( settings.hour      ) $("#hour").val(settings.hour);
+      if ( settings.minute    ) $("#minute").val(settings.minute);
+    },
+    error: function(xhr, error) {
+      if ( xhr.status != 404 ) {
+        alert('Error loading settings');
+      }
+    }
+  });
+}
+
+function saveSettings() {
+  $.ajax({
+    url: '/settings',
+    type: 'POST',
+    data: { 
+      group_id: $("#contactgroups").val(),
+      hour: $("#hour").val(),
+      minute: $("#minute").val()
+    },
+    success: function() {
+      saveSchedule();
+    },
+    error: function(xhr, error) {
+      alert('Error saving settings');
+    }
+  });
+}
+
+function loadSchedule() {
+  $.ajax({
+    url: '/schedule',
+    dataType: 'json',
+    data: { month: currm.getMonth()+1, year: currm.getFullYear() },
+    success: function(data) {
+      schedule = data;
+      for ( dayom in data ) {
+        var $sched = $("#schedule"+dayom),
+            useradded = {};
+        for ( idx in data[dayom] ) {
+          var user = users[data[dayom][idx].user_id];
+          if ( ! useradded[user.user_id] ) {
+            $sched.append("<p class=\"oncall\" style=\"background-color: "+user.color+"\">"+user.firstname+" "+user.lastname +"</p>");
+            useradded[user.user_id] = 1;
+          }
+        }
+      }
+    },
+    error: function(xhr, error) {
+      if ( xhr.status == 404 ) {
+        schedule = {};
+      }
+      else {
+        alert('Error loading schedule');
+      }
+    }
+  });
+}
+
+function saveSchedule() {
+  $.ajax({
+    url: '/schedule',
+    type: 'POST',
+    data: { 
+      month: currm.getMonth() + 1,
+      year: currm.getFullYear(),
+      schedule: JSON.stringify(schedule)
+    },
+    success: function(data) {
+      $("#save").html("Saved!");
+      setTimeout(function() { $("#save").html("Save"); }, 2500);
+    },
+    error: function(xhr, error) {
+      alert('Error saving schedule');
+    }
+  });
+}
+
+function checkTime($me, max) {
+  if ( $me.val() >= 0 && $me.val() <= max ) {
+    $me.data("lkg", $me.val());
+  }
+  else {
+    $me.val($me.data("lkg"));
+  }
+}
+
+$(document).ready(function() {
+  $daymodal = $("#dayModal").dialog({ 
+    autoOpen: false,
+    modal: true,
+    minHeight: 250,
+    minWidth: 800,
+    buttons: {
+      "Save": saveDay,
+      "Cancel": function() { $(this).dialog("close"); }
+    }
+  });
+  $("#previous_month").on("click", prevMon);
+  $("#next_month").on("click", nextMon);
+  $("#hour").on("keyup", function() { checkTime($(this), 23); });
+  $("#minute").on("keyup", function() { checkTime($(this), 59); });
+  $("#save").on("click", saveSettings);
+  $(document).on("click", ".remove_user", removeUser);
+  $(document).on("change", ".userselect", populateUserContactMethods);
+  $(document).on("change", ".methodselect", methodSelected);
+  showCal();
+});
+</script>
+</html>
